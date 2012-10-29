@@ -1,0 +1,201 @@
+#!/bin/bash
+BASEDIR="${0%/*}"
+DATADIR="$BASEDIR/mac_data"			# customizable
+DATABASE="$DATADIR/ieee-macs"			# customizable
+TMPFILE="/tmp/ieee-macs"
+URL="http://standards.ieee.org/regauth/oui/oui.txt"
+ARPTABLE="/proc/net/arp"
+DEBUG=false
+MINIMAL=false
+
+function print_license {
+    echo -e 'Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.'
+    quit
+}
+
+function quit {
+    if $DEBUG; then echo "* cleanup and quit...";fi
+    if ! $MINIMAL; then echo; fi;
+    if [ "$TMPFILE" != "" ]; then if [ -f $TMPFILE ]; then rm $TMPFILE; fi; fi
+    if ! $1; then false; fi
+    exit
+}
+
+function intro {
+    echo
+    echo "MAC resolver 0.3 by pavian@dmnc.net, 2012"
+    echo
+}
+
+
+function check_database {
+    if [ ! -f $DATABASE ]; then echo " * database not found, use --update command";quit false;fi
+}
+
+
+function check_datadir {
+    if [ ! -d $DATADIR ]; then									# create datadir if not exist
+	if [ ! -w $DATADIR ]; then echo " * can't create directory $DATADIR";quit false;fi	# check if can create dir
+	echo -ne " * creating datadir... ";mkdir -p $DATADIR&&echo "[OK]"||quit false
+    fi
+    if [ ! -w $DATABASE ]; then echo " * can't write to database file $DATABASE";quit false;fi		# check if database is writable
+}
+
+
+function update_db {
+    check_datadir
+    echo -ne " * updating MAC db... "
+    wget -q -O $TMPFILE "$URL"&&echo "[OK]"||echo "[ERROR!]"
+    echo -n " * parsing... "
+    grep "(hex)" $TMPFILE>$DATABASE&&echo "[OK]"||echo "[ERROR!]"
+    rm $TMPFILE
+    quit
+}
+
+
+function print_changelog {
+    echo -e '
+0.3 [2012-10-29]
+ - minimal output
+ - database/datadir checks
+
+0.2 [2012-03-30]
+ - automated ARP table resolver
+
+0.1 [2012-03-12]
+ - 1st version
+'
+    quit
+}
+
+function print_license {
+    echo -e 'Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.'
+    echo
+    quit
+}
+
+function help {
+    echo -e "\tUsage:"
+    echo -e "\t$0 MAC [--option]"
+    echo -e "\t$0 --command"
+    echo
+    echo -e "\tMAC\t\txx:xx:xx:xx:xx:xx or first 3 segments xx:xx:xx"
+    echo -e "\t--minimal\tMinimal output, only vendor/company information"
+    echo
+    echo -e "\tCommands (standalone, higher priority):"
+    echo -e "\t--arptable\tResolve all macs in arptable"
+    echo -e "\t--license"
+    echo -e "\t--changelog"
+    echo -e "\t--update\tUpdate database"
+    echo
+    echo
+    quit
+}
+
+
+function commands {
+    for par in "$@"; do
+        CMD=`echo "$par"|awk -F "--" '{print $2}'|awk -F "=" '{print $1}'`		#get command or options
+#        VAL=`echo "$par"|awk -F "--" '{print $2}'|awk -F "=" '{print $2}'`		#get value, not used now
+	case $CMD in
+	    licence|license)
+		ACTION="print_license"
+		;;
+	    changelog)
+		ACTION="print_changelog"
+		;;
+	    update)
+		ACTION="update_db"
+		;;
+	    arptable)
+		ACTION="check_arptable"
+		;;
+	    minimal)
+		MINIMAL=true
+		;;
+	esac
+	if $DEBUG; then echo "* command $CMD value $VAL";fi
+    done
+}
+
+
+function normalize_input {
+    read data
+    # change delimiter from ":" to "-"
+    echo $data|sed 's/:/-/g'|tr [:lower:] [:upper:]
+}
+
+function make_pattern {
+    # strip first 8 characters of the parameter $1
+    PATTERN=${1:0:8}
+}
+
+
+function check_arptable {
+    cat $ARPTABLE|grep -v '00:00:00:00:00:00'|tail -n +2|sort|uniq>$TMPFILE
+    while read LINE; do
+	MAC=`echo $LINE|awk '{print $4}'|normalize_input`
+	IP=`echo $LINE|awk '{print $1}'`
+	make_pattern $MAC
+	check_mac dontquit "$MAC\t$IP"					# make record intro - full MAC and IP
+    done < $TMPFILE
+    quit
+}
+
+function check_mac {
+    check_database
+    RESULT=`grep "$PATTERN" $DATABASE|awk -F "\t" '{print $3}'`		# most important line in this script
+    if [ "$2" != "" ]; then NOTE="$2\t";fi				# record intro
+    if $MINIMAL; then
+	echo -e "$RESULT"
+    else
+	echo -e " * $NOTE $PATTERN - $RESULT"
+    fi
+    if [ "$1" != "dontquit" ]; then quit;fi
+}
+
+########################## MAIN ####################################
+
+commands $@						# get action
+if ! $MINIMAL; then intro;fi
+$ACTION							# call action
+
+MAC=`echo $1|grep -e ":" -e "-"|normalize_input`
+if [ ${#MAC} == 17 ]; then make_pattern $MAC; fi	# strip full MAC to pattern
+if [ ${#MAC} == 8 ]; then PATTERN=$MAC; fi
+if [ "$PATTERN" != "" ]; then check_mac;fi		# check the pattern
+
+help							# or if passed up to here, show help
+quit

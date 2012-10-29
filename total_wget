@@ -1,0 +1,46 @@
+#!/bin/bash
+# Total wget - stress test downloader, handle with care, no warranty
+# by pavian@dmnc.net, 2009
+LIST="/opt/utils/total_wget.list"
+WGET="`which wget`"
+
+
+function showHelp {
+    echo 'Press "s" for status, "q" to quit, "k" kill (all) wgets, "x" kill and quit'
+}
+
+function terminate {
+#TODO...
+killall wget
+}
+
+function pscount {
+    let PS=`ps a|grep "wget -q -O /dev/null"|grep -v grep|wc -l`
+    echo $PS
+}
+
+function wait {
+    read -u 0 -s -n 1 -t 1 KEY
+    case $KEY in
+	s) echo "actual wget count: "$(pscount);;
+	q) exit;;
+	k) terminate;;
+	x) terminate;exit;;
+	h) showHelp;;
+	f) echo;echo;fortune -o;echo;;
+    esac
+}
+
+if [ ! -f $LIST ]; then echo "* please create download list (file $LIST) with URLs (one per line)";false;exit;fi
+if [ "$1" == "" ]; then echo "* usage: $0 wget_count [-q]";false;exit;fi
+if [ "$2" == "-q" ]; then QUIET=true; else QUIET=false; showHelp; fi
+let MULTIPLIER=$1-1
+
+while true; do
+    for URL in `cat $LIST`; do
+	while [ $(pscount) -gt $MULTIPLIER ]; do wait; done
+	if ! $QUIET; then echo "* adding $URL"; fi
+	$WGET -q -O /dev/null "$URL"&
+    done
+    if ! $QUIET; then echo "* rotating list...";fi
+done
