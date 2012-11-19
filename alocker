@@ -1,0 +1,4 @@
+#!/bin/sh
+`which alock` -bg blank -cursor theme:name=xtr -auth pam&
+sleep 10
+pidof alock&&xset dpms force off	#only while alock is still running
