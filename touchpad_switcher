@@ -1,0 +1,12 @@
+#!/bin/bash
+which synclient>/dev/null||exit
+SYNCLIENT=`which synclient`
+#ELEMENT="TouchpadOff"		# disable whole Touchpad
+ELEMENT="TapButton1"		# disable left-click
+
+if [ `$SYNCLIENT -l | grep $ELEMENT | awk '{ print $3 }'` -eq 0 ];
+then
+    $SYNCLIENT $ELEMENT=1
+else
+    $SYNCLIENT $ELEMENT=0
+fi
