@@ -39,7 +39,7 @@ function quit {
 
 function intro {
     echo
-    echo "MAC resolver 0.3 by pavian@dmnc.net, 2012"
+    echo "MAC resolver 0.31 by lurid@dmnc.net, 2012-2014"
     echo
 }
 
@@ -51,10 +51,12 @@ function check_database {
 
 function check_datadir {
     if [ ! -d $DATADIR ]; then									# create datadir if not exist
-	if [ ! -w $DATADIR ]; then echo " * can't create directory $DATADIR";quit false;fi	# check if can create dir
-	echo -ne " * creating datadir... ";mkdir -p $DATADIR&&echo "[OK]"||quit false
+	mkdir -p $DATADIR
+	echo -ne " * creating datadir... ";mkdir -p $DATADIR&&echo "[OK]"
+	if [ $? -ne 0 ]; then echo " * can't create directory $DATADIR";quit false;fi	# check if can create dir
     fi
-    if [ ! -w $DATABASE ]; then echo " * can't write to database file $DATABASE";quit false;fi		# check if database is writable
+    touch $DATABASE
+    if [ ! -w $DATABASE ]; then echo " * can't write database file $DATABASE";quit false;fi		# check if database is writable
 }
 
 
