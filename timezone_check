@@ -1,0 +1,14 @@
+#!/bin/bash
+MYSQL_USER=test
+MYSQL_PASSWD=test123
+ls -l /etc/localtime
+echo -ne 'OS TZ: '
+cat /etc/timezone
+echo '<?php echo "php.ini TZ: ".get_cfg_var("date.timezone")."\n";?>'|php
+echo '<?php echo "PHP def.TZ: ".date_default_timezone_get()."\n";?>'|php
+mysql -u $MYSQL_USER -p$MYSQL_PASSWD -e 'SELECT @@global.time_zone, @@system_time_zone'
+echo
+echo "OS: `date '+%H:%M'`"
+echo '<?php echo "PHP: ".date("H:i")."\n";?>'|php
+echo -ne 'Unixtime: '
+date +%s
