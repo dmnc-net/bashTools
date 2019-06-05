@@ -1,9 +1,11 @@
 #!/bin/bash
+APP_TITLE="MAC resolver 0.4 by lurid@dmnc.net, 2012-2019"
 BASEDIR="${0%/*}"
 DATADIR="$BASEDIR/mac_data"			# customizable
 DATABASE="$DATADIR/ieee-macs"			# customizable
 TMPFILE="/tmp/ieee-macs"
-URL="http://standards-oui.ieee.org/oui.txt"
+URL_IEEE="http://standards-oui.ieee.org/oui.txt"
+URL_WIRESHARK="https://code.wireshark.org/review/gitweb?p=wireshark.git;a=blob_plain;f=manuf"
 ARPTABLE="/proc/net/arp"
 DEBUG=false
 MINIMAL=false
@@ -39,7 +41,7 @@ function quit {
 
 function intro {
     echo
-    echo "MAC resolver 0.31u by lurid@dmnc.net, 2012-2019"
+    echo -e "\e[1;37m$APP_TITLE\e[0m"
     echo
 }
 
@@ -51,7 +53,6 @@ function check_database {
 
 function check_datadir {
     if [ ! -d $DATADIR ]; then									# create datadir if not exist
-	mkdir -p $DATADIR
 	echo -ne " * creating datadir... ";mkdir -p $DATADIR&&echo "[OK]"
 	if [ $? -ne 0 ]; then echo " * can't create directory $DATADIR";quit false;fi	# check if can create dir
     fi
@@ -60,19 +61,38 @@ function check_datadir {
 }
 
 
-function update_db {
+function update_ieee {
     check_datadir
-    echo -ne " * updating MAC db... "
-    wget -q -O $TMPFILE "$URL"&&echo "[OK]"||echo "[ERROR!]"
+    echo -ne " * updating MAC db (the obsolete source)... "
+    wget -q -O $TMPFILE "$URL_IEEE"&&echo "[OK]"||echo "[ERROR!]"
     echo -n " * parsing... "
-    grep "(hex)" $TMPFILE>$DATABASE&&echo "[OK]"||echo "[ERROR!]"
+    grep "(hex)" $TMPFILE|sed 's/-/:/1;s/-/:/1;s/   (hex)\t//'>$DATABASE&&echo "[OK]"||echo "[ERROR!]"
     rm $TMPFILE
     quit
 }
 
+function update_wireshark {
+    check_datadir
+    echo -ne " * updating MAC db... "
+    wget -q -O $TMPFILE "$URL_WIRESHARK"&&echo "[OK]"||echo "[ERROR!]"
+    echo -n " * parsing... "
+    sed -E 's/#.*$//;/^$/d;s/:00:00\/28//;s/:00\/36//;s/\t.{1,8}\t/\t/' $TMPFILE>$DATABASE&&echo "[OK]"||echo "[ERROR!]"
+    rm $TMPFILE
+    quit
+}
 
 function print_changelog {
     echo -e '
+0.4 [2019-06-04]
+ - added Wireshark database
+ - rework of the db and engine
+ - input is converted and validated
+ - fixed datadir wtf
+ - help page changes
+
+0,31 [2014-12-22]
+ - datadir hotfix (wtf)
+ 
 0.3 [2012-10-29]
  - minimal output
  - database/datadir checks
@@ -92,14 +112,15 @@ function help {
     echo -e "\t$0 MAC [--option]"
     echo -e "\t$0 --command"
     echo
-    echo -e "\tMAC\t\txx:xx:xx:xx:xx:xx or first 3 segments xx:xx:xx"
-    echo -e "\t--minimal\tMinimal output, only vendor/company information"
+    echo -e "\tMAC\t\txx:xx:xx:xx:xx:xx (at least first 3 segments), allowed delimiters are ':' or '-' or none"
+    echo -e "\t--minimal\tMinimal output, only vendor/company information (not applicable with --arptable)"
     echo
     echo -e "\tCommands (standalone, higher priority):"
     echo -e "\t--arptable\tResolve all macs in arptable"
     echo -e "\t--license"
     echo -e "\t--changelog"
-    echo -e "\t--update\tUpdate database"
+    echo -e "\t--update\tUpdate database (source: Wireshark)"
+    echo -e "\e[0;90m\t--update-ieee\tUpdate database (source: IEEE) [obsolete]\e[m\n"
     echo
     echo
     quit
@@ -117,8 +138,11 @@ function commands {
 	    changelog)
 		ACTION="print_changelog"
 		;;
+	    update-ieee)
+		ACTION="update_ieee"
+		;;
 	    update)
-		ACTION="update_db"
+		ACTION="update_wireshark"
 		;;
 	    arptable)
 		ACTION="check_arptable"
@@ -132,39 +156,42 @@ function commands {
 }
 
 
-function normalize_input {
-    read data
-    # change delimiter from ":" to "-"
-    echo $data|sed 's/:/-/g'|tr [:lower:] [:upper:]
+function normalize_mac {
+    read RAW
+    echo $RAW|tr [:lower:] [:upper:]|sed 's/[:-]//g;s/[0-9A-F]\{2\}/&\:/g;s/\:$//'
 }
 
 function make_pattern {
-    # strip first 8 characters of the parameter $1
-    PATTERN=${1:0:8}
+    # strip first ($2) characters of the parameter ($1)
+    PATTERN=${1:0:$2}
 }
 
 
 function check_arptable {
-    cat $ARPTABLE|grep -v '00:00:00:00:00:00'|tail -n +2|sort|uniq>$TMPFILE
+    cat $ARPTABLE|grep -v '00:00:00:00:00:00'|tail -n +2|awk '{print $1"\t"$4}'|sort|uniq>$TMPFILE
     while read LINE; do
-	MAC=`echo $LINE|awk '{print $4}'|normalize_input`
-	IP=`echo $LINE|awk '{print $1}'`
-	make_pattern $MAC
-	check_mac dontquit "$MAC\t$IP"					# make record intro - full MAC and IP
+	IP=$(cut -f1 <<< ${LINE})
+	MAC=$(cut -f2 <<< ${LINE}|normalize_mac)
+	check_mac $MAC $IP dontquit
     done < $TMPFILE
     quit
 }
 
 function check_mac {
+    MAC="$1"
+    IP="$2"
     check_database
-    RESULT=`grep "$PATTERN" $DATABASE|awk -F "\t" '{print $3}'`		# most important line in this script
-    if [ "$2" != "" ]; then NOTE="$2\t";fi				# record intro
-    if $MINIMAL; then
-	echo -e "$RESULT"
-    else
-	echo -e " * $NOTE $PATTERN - $RESULT"
-    fi
-    if [ "$1" != "dontquit" ]; then quit;fi
+    for PATTERN_LEN in 8 11 14; do					# 8 = classic 12:45:78 record
+	make_pattern $MAC $PATTERN_LEN
+	RESULT=`grep "$PATTERN" $DATABASE|awk -F "\t" '{print $2}'`	# most important line in this script
+	if [ $(wc -l <<< "${RESULT}") -lt 2 ]; then break; fi		# finish with just 0/1 results
+	if [ ${#MAC} -lt $PATTERN_LEN ]; then echo " * multiple results found (MAC pattern is too short)"; quit false; fi
+    done
+
+    if [ "$IP" != "" ]; then echo -en " * $MAC - $IP\t";fi
+    if ! $MINIMAL; then echo -ne "$PATTERN - ";fi
+    echo $RESULT
+    if [ "$3" != "dontquit" ]; then quit;fi
 }
 
 ########################## MAIN ####################################
@@ -173,10 +200,12 @@ commands $@						# get action
 if ! $MINIMAL; then intro;fi
 $ACTION							# call action
 
-MAC=`echo $1|grep -e ":" -e "-"|normalize_input`
-if [ ${#MAC} == 17 ]; then make_pattern $MAC; fi	# strip full MAC to pattern
-if [ ${#MAC} == 8 ]; then PATTERN=$MAC; fi
-if [ "$PATTERN" != "" ]; then check_mac;fi		# check the pattern
+if [ "$1" != "" ]; then
+    MAC=`echo $1|normalize_mac`
+    INVALID=$(sed -E 's/[0-9A-F:]//g' <<< ${MAC})
+    if (( ${#INVALID} > 0 )); then echo " * $MAC is not valid MAC!"; quit false; fi
+    if (( ${#MAC} >=8 && ${#MAC} <= 17 )); then check_mac $MAC; else echo " * MAC pattern is too short or long!"; quit false; fi
+fi
 
 help							# or if passed up to here, show help
 quit
