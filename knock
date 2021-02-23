@@ -1,5 +1,15 @@
 #!/bin/bash
+# usage: knock HOST PORT1 PORT2 ... PORTx
 # source: https://wiki.archlinux.org/index.php/Port_knocking#Port_knocking_script
+# Mikrotik ROS example:
+: '
+;;; Knock knock #1
+chain=input action=add-src-to-address-list protocol=tcp address-list=knockknock#1 address-list-timeout=15s dst-port=??? log=no log-prefix=""
+;;; Knock knock #2
+chain=input action=add-src-to-address-list protocol=tcp src-address-list=knockknock#1 address-list=knockknock#2 address-list-timeout=15s dst-port=??? log=no log-prefix=""
+;;; Knock knock #3
+chain=input action=add-src-to-address-list protocol=tcp src-address-list=knockknock#2 address-list=trusted_public_ip address-list-timeout=1m dst-port=??? log=no log-prefix=""
+'
 HOST=$1
 shift
 for ARG in "$@"
