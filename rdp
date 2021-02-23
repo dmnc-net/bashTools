@@ -1,0 +1,55 @@
+#!/bin/sh
+usage() { echo "Usage: $0 -h <host> [-d <domain>] -u <username> [-p <password>]" 1>&2; exit 1; }
+
+icon="/usr/share/icons/Adwaita/256x256/legacy/preferences-desktop-remote-desktop.png"
+params="/cert-ignore +auto-reconnect /clipboard /w:1600 /h:900 /bpp:16 /drive:tmp,/tmp"
+# +bitmap-cache"
+ihost=""
+idomain=""
+iuser=""
+ipasswd=""
+
+OPTIND=1
+READONLY=":RO"
+
+
+while getopts ":h:d:u:p:" o; do
+    case "${o}" in
+        h)
+            ihost=${OPTARG}
+            rohost=${READONLY}
+            ;;
+        d)
+            idomain=${OPTARG}
+            rodomain=${READONLY}
+            ;;
+        u)
+            iuser=${OPTARG}
+            rouser=${READONLY}
+            ;;
+        p)
+            ipasswd=${OPTARG}
+            ;;
+    esac
+done
+
+if [ -n "${ihost}" ] && [ -n "${iuser}" ] && [ -n "${ipasswd}" ]; then
+    frmdata="${ihost}|${idomain}|${iuser}|${ipasswd}"
+else
+    frmdata=$(yad --title 'RDP connect' --form --field="Host"${rohost} --field="Domain"${rodomain} --field="Username"${rouser} --field="Password":H "${ihost}" "${idomain}" "${iuser}" "${ipasswd}")
+fi
+
+if [ -z "${frmdata}" ]; then exit 1;fi
+frmhost=$(echo $frmdata | awk 'BEGIN {FS="|" } { print $1 }')
+frmdomain=$(echo $frmdata | awk 'BEGIN {FS="|" } { print $2 }')
+frmuser=$(echo $frmdata | awk 'BEGIN {FS="|" } { print $3 }')
+frmpasswd=$(echo $frmdata | awk 'BEGIN {FS="|" } { print $4 }')
+
+xfreerdp /v:$frmhost /d:$frmdomain /u:$frmuser /p:$frmpasswd $params &
+pid=$!
+sleep 5
+ps a|grep $pid|grep -v grep||exit 1
+xseticon -name "FreeRDP: $frmhost" "$icon"
+#echo Killing PPID $PPID...
+#kill -9 $PPID
+
