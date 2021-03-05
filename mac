@@ -1,5 +1,5 @@
 #!/bin/bash
-APP_TITLE="MAC resolver 0.4 by lurid@dmnc.net, 2012-2019"
+APP_TITLE="MAC resolver 0.41 by lurid@dmnc.net, 2012"
 BASEDIR="${0%/*}"
 DATADIR="$BASEDIR/mac_data"			# customizable
 DATABASE="$DATADIR/ieee-macs"			# customizable
@@ -158,7 +158,7 @@ function commands {
 
 function normalize_mac {
     read RAW
-    echo $RAW|tr [:lower:] [:upper:]|sed 's/[:-]//g;s/[0-9A-F]\{2\}/&\:/g;s/\:$//'
+    echo $RAW|tr '[[:lower:]]' '[[:upper:]]'|sed 's/[:-]//g;s/[0-9A-F]\{2\}/&\:/g;s/\:$//'
 }
 
 function make_pattern {
@@ -201,7 +201,7 @@ if ! $MINIMAL; then intro;fi
 $ACTION							# call action
 
 if [ "$1" != "" ]; then
-    MAC=`echo $1|normalize_mac`
+    MAC=$(echo $1|normalize_mac)
     INVALID=$(sed -E 's/[0-9A-F:]//g' <<< ${MAC})
     if (( ${#INVALID} > 0 )); then echo " * $MAC is not valid MAC!"; quit false; fi
     if (( ${#MAC} >=8 && ${#MAC} <= 17 )); then check_mac $MAC; else echo " * MAC pattern is too short or long!"; quit false; fi
