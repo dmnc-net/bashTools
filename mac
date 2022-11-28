@@ -1,14 +1,15 @@
 #!/bin/bash
-APP_TITLE="MAC resolver 0.41 by lurid@dmnc.net, 2012"
+APP_TITLE="MAC resolver 0.5 by lurid@dmnc.net, 2012-2022"
 BASEDIR="${0%/*}"
 DATADIR="$BASEDIR/mac_data"			# customizable
-DATABASE="$DATADIR/ieee-macs"			# customizable
+DATABASE="$DATADIR/vendors.json"		# customizable
 TMPFILE="/tmp/ieee-macs"
-URL_IEEE="http://standards-oui.ieee.org/oui.txt"
-URL_WIRESHARK="https://raw.githubusercontent.com/wireshark/wireshark/master/manuf.tmpl"
+URL_PRI="https://maclookup.app/downloads/json-database/get-db"
+URL_ALT=""
 ARPTABLE="/proc/net/arp"
 DEBUG=false
-MINIMAL=false
+FILTER=""
+PATTERN_LEN=8
 
 function print_license {
     echo -e 'Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -47,7 +48,7 @@ function intro {
 
 
 function check_database {
-    if [ ! -f $DATABASE ]; then echo " * database not found, use --update command";quit false;fi
+    if [ ! -f $DATABASE ]; then check_datadir;update_pri;fi
 }
 
 
@@ -61,29 +62,20 @@ function check_datadir {
 }
 
 
-function update_ieee {
-    check_datadir
-    echo -ne " * updating MAC db (the obsolete source)... "
-    wget -q -O $TMPFILE "$URL_IEEE"&&echo "[OK]"||echo "[ERROR!]"
-    echo -n " * parsing... "
-    grep "(hex)" $TMPFILE|sed 's/-/:/1;s/-/:/1;s/   (hex)\t//'>$DATABASE&&echo "[OK]"||echo "[ERROR!]"
-    rm $TMPFILE
-    quit
-}
-
-function update_wireshark {
+function update_pri {
     check_datadir
     echo -ne " * updating MAC db... "
-    wget -q -O $TMPFILE "$URL_WIRESHARK"&&echo "[OK]"||echo "[ERROR!]"
-    echo -n " * parsing... "
-    sed -E 's/#.*$//;/^$/d;s/:00:00\/28//;s/:00\/36//;s/\t.{1,8}\t/\t/' $TMPFILE>$DATABASE&&echo "[OK]"||echo "[ERROR!]"
-    rm $TMPFILE
-    quit
+    wget -q -O $DATABASE "$URL_PRI"&&echo "[OK]"||echo "[ERROR!]"
 }
 
 function print_changelog {
     echo -e '
-0.4 [2019-06-04]
+0.5 [2022-11-28]
+ - new sources
+ - JSON db
+0.41 [2021-03-05]
+ - bugfix in normalize_mac
+0.40 [2019-06-04]
  - added Wireshark database
  - rework of the db and engine
  - input is converted and validated
@@ -93,7 +85,7 @@ function print_changelog {
 0,31 [2014-12-22]
  - datadir hotfix (wtf)
  
-0.3 [2012-10-29]
+0.30 [2012-10-29]
  - minimal output
  - database/datadir checks
 
@@ -119,8 +111,8 @@ function help {
     echo -e "\t--arptable\tResolve all macs in arptable"
     echo -e "\t--license"
     echo -e "\t--changelog"
-    echo -e "\t--update\tUpdate database (source: Wireshark)"
-    echo -e "\e[0;90m\t--update-ieee\tUpdate database (source: IEEE) [obsolete]\e[m\n"
+    echo -e "\t--update\tUpdate database"
+#    echo -e "\e[0;90m\t--update-alt\tUpdate database (alternative source)\e[m\n"
     echo
     echo
     quit
@@ -138,17 +130,14 @@ function commands {
 	    changelog)
 		ACTION="print_changelog"
 		;;
-	    update-ieee)
-		ACTION="update_ieee"
-		;;
 	    update)
-		ACTION="update_wireshark"
+		ACTION="update_pri"
 		;;
 	    arptable)
 		ACTION="check_arptable"
 		;;
 	    minimal)
-		MINIMAL=true
+		FILTER=".vendorName"
 		;;
 	esac
 	if $DEBUG; then echo "* command $CMD value $VAL";fi
@@ -162,37 +151,33 @@ function normalize_mac {
 }
 
 function make_pattern {
-    # strip first ($2) characters of the parameter ($1)
-    PATTERN=${1:0:$2}
+    # strip first ($1) characters of string
+    read RAW
+    echo ${RAW:0:$1}
 }
 
 
 function check_arptable {
+    check_database
     cat $ARPTABLE|grep -v '00:00:00:00:00:00'|tail -n +2|awk '{print $1"\t"$4}'|sort|uniq>$TMPFILE
     while read LINE; do
 	IP=$(cut -f1 <<< ${LINE})
 	MAC=$(cut -f2 <<< ${LINE}|normalize_mac)
-	check_mac $MAC $IP dontquit
+	PATTERN=$(echo "$MAC"|make_pattern $PATTERN_LEN)
+	VENDOR=`cat $DATABASE | jq -r 'map(select(.macPrefix | startswith("'$PATTERN'"))) | .[].vendorName'`
+	echo -e " * $MAC - $IP\t[$PATTERN]\t[$VENDOR]"
     done < $TMPFILE
     quit
 }
 
+
 function check_mac {
     MAC="$1"
-    IP="$2"
     check_database
-    for PATTERN_LEN in 8 11 14; do					# 8 = classic 12:45:78 record
-	make_pattern $MAC $PATTERN_LEN
-	RESULT=`grep "$PATTERN" $DATABASE|awk -F "\t" '{print $2}'`	# most important line in this script
-	if [ $(wc -l <<< "${RESULT}") -lt 2 ]; then break; fi		# finish with just 0/1 results
-	if [ ${#MAC} -lt $PATTERN_LEN ]; then echo " * multiple results found (MAC pattern is too short)"; quit false; fi
-    done
-
-    if [ "$IP" != "" ]; then echo -en " * $MAC - $IP\t";fi
-    if ! $MINIMAL; then echo -ne "$PATTERN - ";fi
-    echo $RESULT
+    cat $DATABASE | jq -r 'map(select(.macPrefix | startswith("'$MAC'"))) | .[]'"$FILTER"''
     if [ "$3" != "dontquit" ]; then quit;fi
 }
+
 
 ########################## MAIN ####################################
 
