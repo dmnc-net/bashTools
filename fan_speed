@@ -1,0 +1,2 @@
+#!/bin/sh
+cat /proc/acpi/ibm/fan | grep "level:" | awk '{print $2}'
