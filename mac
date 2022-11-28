@@ -5,7 +5,7 @@ DATADIR="$BASEDIR/mac_data"			# customizable
 DATABASE="$DATADIR/ieee-macs"			# customizable
 TMPFILE="/tmp/ieee-macs"
 URL_IEEE="http://standards-oui.ieee.org/oui.txt"
-URL_WIRESHARK="https://code.wireshark.org/review/gitweb?p=wireshark.git;a=blob_plain;f=manuf"
+URL_WIRESHARK="https://raw.githubusercontent.com/wireshark/wireshark/master/manuf.tmpl"
 ARPTABLE="/proc/net/arp"
 DEBUG=false
 MINIMAL=false
